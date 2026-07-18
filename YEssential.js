@@ -13,8 +13,8 @@ const pluginpath = "./plugins/YEssential/";
 const datapath = "./plugins/YEssential/data/";
 const NAME = `YEssential`;
 const PluginInfo =`基岩版多功能基础插件`;
-const version = "2.12.10";
-const regversion =[2,12,10];
+const version = "2.12.11";
+const regversion =[2,12,11];
 const info = "§l§d[-YEST-] §r§l> ";
 const offlineMoneyPath = datapath+"/Money/offlineMoney.json";
 const offlineNotifyPath = datapath+"/Money/offlineNotify.json";
@@ -2240,14 +2240,14 @@ function showTpaMainMenu(player) {
     const fm = mc.newSimpleForm();
     fm.setTitle(CachePool.lang("tpa.main.title"));
     fm.setContent(CachePool.lang("tpa.main.content"));
-    fm.addButton(CachePool.lang("tpa.btn.to"));
-    fm.addButton(CachePool.lang("tpa.btn.here"));
-    fm.addButton(CachePool.lang("tpa.btn.prefs"));
+    fm.addButton(CachePool.lang("tpa.btn.to"), "textures/items/ender_pearl");
+    fm.addButton(CachePool.lang("tpa.btn.here"), "textures/ui/FriendsDiversity");
+    fm.addButton(CachePool.lang("tpa.btn.prefs"), "textures/ui/settings_pause_menu_icon");
     player.sendForm(fm, (pl, id) => {
         if (id == null) return;
         if (id === 0) showTpaMenu(pl, "to");
         else if (id === 1) showTpaMenu(pl, "here");
-        else if (id === 2) showTpaPrefsGui(pl);
+        else if (id === 2) showTpaPrefsMenu(pl);
     });
 }
 
@@ -2305,12 +2305,29 @@ function showTpaMenu(player, fixedDirection) {
 }
 
 // 玩家个人 TPA 偏好设置
+// "个人偏好设置" 二级菜单：基础设置 / 传送黑名单
+function showTpaPrefsMenu(player) {
+    const fm = mc.newSimpleForm();
+    fm.setTitle(CachePool.lang("tpa.prefs.title"));
+    fm.setContent(CachePool.lang("tpa.prefs.menu.content"));
+    fm.addButton(CachePool.lang("tpa.prefs.menu.btn.basic"), "textures/ui/settings_glyph_color_2x");
+    fm.addButton(CachePool.lang("tpa.btn.blacklist"), "textures/blocks/barrier");
+    fm.addButton(CachePool.lang("tpa.btn.back"), "textures/ui/back_button_default");
+
+    player.sendForm(fm, (pl, id) => {
+        if (id == null) return;
+        if (id === 0) showTpaPrefsGui(pl);
+        else if (id === 1) showTpaBlacklistMenu(pl);
+        else if (id === 2) showTpaMainMenu(pl);
+    });
+}
+
 function showTpaPrefsGui(player) {
     const prefs = tpacfg.get(player.realName) || {};
     const tpaConfig = CachePool.conf("tpa") || {};
     
     const fm = mc.newCustomForm();
-    fm.setTitle(CachePool.lang("tpa.prefs.title"));
+    fm.setTitle(CachePool.lang("tpa.prefs.basic.title"));
     fm.addLabel(CachePool.lang("tpa.prefs.label"));
     fm.addSwitch(CachePool.lang("tpa.prefs.switch"), prefs.acceptTpaRequests !== false);
     fm.addDropdown(CachePool.lang("tpa.prefs.prompt"), [CachePool.lang("tpa.prefs.prompt.form"), CachePool.lang("tpa.prefs.prompt.text")],
@@ -2318,7 +2335,10 @@ function showTpaPrefsGui(player) {
     fm.addInput("tpa请求有效时间/秒", "秒", String(prefs.requestTimeout || tpaConfig.requestTimeout || 60), CachePool.lang("tpa.timeout.tip") || "");
     
     player.sendForm(fm, (pl, data) => {
-        if (!data) return;
+        if (!data) {
+            showTpaPrefsMenu(pl);
+            return;
+        }
         const [, acceptSwitch, promptIdx, timeoutStr] = data;
         const timeout = parseInt(timeoutStr);
         const newPrefs = {
@@ -2329,6 +2349,91 @@ function showTpaPrefsGui(player) {
         };
         tpacfg.set(pl.realName, newPrefs);
         pl.tell(info + CachePool.lang("tpa.save.conf.ok"));
+        showTpaPrefsMenu(pl);
+    });
+}
+
+// 玩家个人 TPA 传送黑名单管理
+function showTpaBlacklistMenu(player) {
+    const prefs = tpacfg.get(player.realName) || {};
+    const blacklist = Array.isArray(prefs.blacklist) ? prefs.blacklist : [];
+
+    const fm = mc.newSimpleForm();
+    fm.setTitle(CachePool.lang("tpa.blacklist.title"));
+    fm.setContent(CachePool.lang("tpa.blacklist.content") +
+        (blacklist.length === 0 ? "\n" + CachePool.lang("tpa.blacklist.empty") : ""));
+
+    blacklist.forEach(name => fm.addButton(`§c${name}`, "textures/blocks/barrier"));
+    fm.addButton(CachePool.lang("tpa.blacklist.btn.add"), "textures/ui/Add-Ons_Nav_Icon36x36");
+    fm.addButton(CachePool.lang("tpa.btn.back"), "textures/ui/back_button_default");
+
+    player.sendForm(fm, (pl, id) => {
+        if (id == null) {
+            showTpaPrefsMenu(pl);
+            return;
+        }
+        if (id === blacklist.length + 1) {
+            showTpaPrefsMenu(pl);
+            return;
+        }
+        if (id === blacklist.length) {
+            // 倒数第二个按钮固定为"添加玩家"
+            showTpaBlacklistAddForm(pl);
+            return;
+        }
+        // 点击某个已在黑名单中的玩家 -> 移出黑名单
+        const removedName = blacklist[id];
+        const curPrefs = tpacfg.get(pl.realName) || {};
+        const curBlacklist = Array.isArray(curPrefs.blacklist) ? curPrefs.blacklist : [];
+        const newBlacklist = curBlacklist.filter(n => n !== removedName);
+        tpacfg.set(pl.realName, { ...curPrefs, blacklist: newBlacklist });
+        pl.tell(info + CachePool.lang("tpa.blacklist.remove.ok").replace("${player}", removedName));
+        showTpaBlacklistMenu(pl);
+    });
+}
+
+function showTpaBlacklistAddForm(player) {
+    const prefs = tpacfg.get(player.realName) || {};
+    const blacklist = Array.isArray(prefs.blacklist) ? prefs.blacklist : [];
+    const onlinePlayers = CachePool.getOnlinePlayers().filter(p => p.name !== player.name);
+    const nameList = [CachePool.lang("tpa.blacklist.add.dropdown.none"), ...onlinePlayers.map(p => p.name)];
+
+    const form = mc.newCustomForm();
+    form.setTitle(CachePool.lang("tpa.blacklist.add.title"));
+    form.addDropdown(CachePool.lang("tpa.blacklist.add.dropdown"), nameList, 0);
+    form.addInput(CachePool.lang("tpa.blacklist.add.input"), "", "", CachePool.lang("tpa.blacklist.add.input.tip"));
+
+    player.sendForm(form, (pl, data) => {
+        if (!data) {
+            showTpaBlacklistMenu(pl);
+            return;
+        }
+        const [dropdownIdx, manualInput] = data;
+        let targetName = (manualInput || "").trim();
+        if (!targetName && dropdownIdx > 0) targetName = nameList[dropdownIdx];
+
+        if (!targetName) {
+            pl.tell(info + CachePool.lang("tpa.blacklist.add.empty"));
+            showTpaBlacklistMenu(pl);
+            return;
+        }
+        if (targetName === pl.realName || targetName === pl.name) {
+            pl.tell(info + CachePool.lang("tpa.blacklist.add.self"));
+            showTpaBlacklistMenu(pl);
+            return;
+        }
+
+        const curPrefs = tpacfg.get(pl.realName) || {};
+        const curBlacklist = Array.isArray(curPrefs.blacklist) ? curPrefs.blacklist : [];
+        if (curBlacklist.includes(targetName)) {
+            pl.tell(info + CachePool.lang("tpa.blacklist.add.exist"));
+            showTpaBlacklistMenu(pl);
+            return;
+        }
+
+        tpacfg.set(pl.realName, { ...curPrefs, blacklist: [...curBlacklist, targetName] });
+        pl.tell(info + CachePool.lang("tpa.blacklist.add.ok").replace("${player}", targetName));
+        showTpaBlacklistMenu(pl);
     });
 }
 
@@ -2390,9 +2495,15 @@ function sendTpaRequest(fromPlayer, toPlayerName, direction, delaySec) {
         return;
     }
     // 检查目标玩家是否接受传送请求
-    const acceptTpaRequests = tpacfg.get(toPlayerName)?.acceptTpaRequests;
-    if (acceptTpaRequests === false) {
+    const toPlayerPrefs = tpacfg.get(toPlayerName) || {};
+    if (toPlayerPrefs.acceptTpaRequests === false) {
         fromPlayer.tell(info + CachePool.lang("tpa.send.noway"));
+        return;
+    }
+    // 检查目标玩家是否将发起者加入了传送黑名单
+    const toPlayerBlacklist = Array.isArray(toPlayerPrefs.blacklist) ? toPlayerPrefs.blacklist : [];
+    if (toPlayerBlacklist.includes(fromPlayer.realName) || toPlayerBlacklist.includes(fromPlayer.name)) {
+        fromPlayer.tell(info + CachePool.lang("tpa.send.blocked"));
         return;
     }
     
