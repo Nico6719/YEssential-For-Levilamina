@@ -121,6 +121,8 @@
 | 2.8.0  | 模块优化更新                | 2026/1/22   |
 | 2.10.10| 新增加菜单以及签到模块       | 2026/4/9    |
 | 2.11.0 | 大量底层更改                | 2026/4/14   |
+| 2.12.11| 玩家互传新增拉黑功能         | 2026/7/17   |
+| 2.12.12| 自杀/死亡点传送冷却，签到修复 | 2026/7/31   |
 | 3.0.0  | GitHub 下载新版             | 未注明      |
 
 ⚠️ *以上为部分版本信息，具体以最新资源页 / GitHub 为准。* 
@@ -129,7 +131,7 @@
 
 ## 📥 下载 / 安装
 
-1. 前往 [MineBBS](https://www.minebbs.com/resources/yessential-lse.10332/) & [何意味网盘](https://xn--vzyr4p.xn--vqqq8jxym.com/disk/s/pVEv2fyRnFB?domainId=bj27706) & [Releases](https://github.com/Nico6719/YEssential-For-Levilamina/releases) & [Y系列插件下载站](dl.mcmcc.cc)下载本插件
+1. 前往 [MineBBS](https://www.minebbs.com/resources/yessential-lse.10332/) & [何意味网盘](https://xn--vzyr4p.xn--vqqq8jxym.com/disk/s/pVEv2fyRnFB?domainId=bj27706) & [Releases](https://github.com/Nico6719/YEssential/releases) & [Y系列插件下载站](http://dl.mcmcc.cc)下载本插件
 2. 将插件文件解压后放入服务器的 `./plugins/` 目录即可运行。
 ---
 
@@ -286,12 +288,20 @@ YEssential 在版本 1.0.0 起已开始兼容 **LeviLamina** 平台，与 LSE �
                 "Scoreboard": "money",  //计分板项使用的名字，不可填中文！
                 "CoinName": "金币"   //金币名字
     },
-    "Back": 0 ,  //返回死亡点花费的金钱
+    "Suicide": {  //自杀功能配置
+                "EnabledModule": true,  //自杀功能总开关
+                "cost": 0,   //自杀所花费的金钱
+                "cooldown": 0   //冷却时间（单位：秒），0为不限制
+    },
+    "Back": {  //死亡点传送配置
+                "EnabledModule": true,  //死亡点传送总开关
+                "cost": 0,   //返回死亡点花费的金钱
+                "cooldown": 0,   //冷却时间（单位：秒），0为不限制。冷却仅在传送成功后计入
+                "tipAfterDeath": false   //重生后是否自动弹出返回GUI
+    },
     "Warp": 0 ,   //前往公共传送点花费的金钱
-    "BackTipAfterDeath": 0,   //重生后是否自动弹窗（1开启，0关闭）
     "KeepInventory": 1,   //开服是否自动执行开启死亡不掉落指令
-    "suicide": 0,   //自杀所花费的金钱
-    "Version": 265   //版本标识符，勿动！
+    "Version": 295   //版本标识符，勿动！
 }
 ```
 > 懒怎么办？？ 试试[网页配置编辑器](https://jzrxh.work/projects/yessential/config.html)吧！
@@ -479,14 +489,19 @@ YEssential 在版本 1.0.0 起已开始兼容 **LeviLamina** 平台，与 LSE �
 {
 
     "money": 0,  //经济模式 0为计分板 1为LLMoney
+    "itemsTriggerMode": 0,  //触发方式（保留字段，当前右键方块与右键空气均可触发）
     "score": "money",  //计分板名称
-    "item": "minecraft:clock",  //菜单触发物品
+    "items": [  //菜单触发物品列表，可配置多个
+        "minecraft:clock"
+    ],
     "main": "main",  //主菜单文件名
     "shield": [],  //屏蔽方块列表
     "UseDogeUI": 0  //是否启用DogeUI兼容
 }
 
 ```
+
+> 💡 菜单按钮命令说明：`comm` 类型按钮中，若命令包含 `@s` 且玩家非 OP，将以控制台身份执行并把 `@s` 替换为玩家名，因此普通玩家也能通过菜单触发 `tag`、`effect`、`scoreboard` 等原版命令，无需给玩家发 OP。不含 `@s` 的命令仍以玩家身份执行，可正常触发 `home`、`warp` 等插件命令。
 
 ---
 
@@ -548,4 +563,4 @@ YEssential 在版本 1.0.0 起已开始兼容 **LeviLamina** 平台，与 LSE �
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Nico6719/YEssential-For-Levilamina&type=Date)](https://star-history.com/#Nico6719/YEssential-For-Levilamina&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Nico6719/YEssential&type=Date)](https://star-history.com/#Nico6719/YEssential&Date)
