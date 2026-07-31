@@ -494,12 +494,15 @@ function initSignModule() {
                 return n;
             }
             try {
+                // 修复：CustomForm 的 addLabel 也会在返回数组中占用一个索引位（值为 null），
+                // 表单结构为：[0]开关 [1]label [2]最小值 [3]最大值 [4]label [5]最小值(经验) [6]最大值(经验) [7]label [8]列数
+                // 原代码未跳过 label 造成索引全部错位，读到的其实是 label 对应的 null，导致数值校验必错。
                 var sw  = id[0];
-                var mn  = parseNum(id[1], randMoney.min_money, 1, 1000000, "随机金币最小值");
-                var mx  = parseNum(id[2], randMoney.max_money, 1, 1000000, "随机金币最大值");
-                var en  = parseNum(id[3], randExp.min_exp,     1, 10000,   "随机经验最小值");
-                var ex  = parseNum(id[4], randExp.max_exp,     1, 10000,   "随机经验最大值");
-                var ga  = parseNum(id[5], signCfg.gui_arrange, 1, 10,      "列数");
+                var mn  = parseNum(id[2], randMoney.min_money, 1, 1000000, "随机金币最小值");
+                var mx  = parseNum(id[3], randMoney.max_money, 1, 1000000, "随机金币最大值");
+                var en  = parseNum(id[5], randExp.min_exp,     1, 10000,   "随机经验最小值");
+                var ex  = parseNum(id[6], randExp.max_exp,     1, 10000,   "随机经验最大值");
+                var ga  = parseNum(id[8], signCfg.gui_arrange, 1, 10,      "列数");
                 if (mn > mx) throw new Error("随机金币最小值不能大于最大值");
                 if (en > ex) throw new Error("随机经验最小值不能大于最大值");
                 Config.set({
@@ -543,16 +546,18 @@ function initSignModule() {
 
         player.sendForm(fm, function (pl, id) {
             if (id == null) { openSetMain(pl); return; }
-            var mode  = id[0];
-            var pos   = id[1];
-            var type  = id[2];
+            // 修复：同奖励物品库设置一样，开头的 addLabel 占用了 id[0]（值为 null），
+            // 真实顺序为 [0]label [1]操作模式 [2]序列位置 [3]奖励类型 [4]选择物品 [5]数量。
+            var mode  = id[1];
+            var pos   = id[2];
+            var type  = id[3];
 
             function buildToken() {
                 if (type === 0) return "random_item";
                 if (type === 1) return "random_money";
                 if (type === 2) return "random_exp";
-                if (type === 3) return "item_" + (Number(id[3]) + 1);
-                var amt = (id[4] === "" || isNaN(id[4])) ? 100 : Number(id[4]);
+                if (type === 3) return "item_" + (Number(id[4]) + 1);
+                var amt = (id[5] === "" || isNaN(id[5])) ? 100 : Number(id[5]);
                 return type === 4 ? "money_" + amt : "exp_" + amt;
             }
 
@@ -601,14 +606,18 @@ function initSignModule() {
 
         player.sendForm(fm, function (pl, id) {
             if (id == null) { openSetMain(pl); return; }
-            var mode = id[0];
+            // 修复：表单首位是 addLabel（§7当前物品库...），会占用返回数组的 id[0]（值为 null），
+            // 真正的控件顺序是 [0]label [1]操作模式 [2]物品库选择 [3]背包物品 [4]设置数量。
+            // 原代码把 id[0] 当作 mode、id[2] 当作背包选择、id[3] 当作数量，全部整体错了一位，
+            // 导致选到的背包物品/数量都是错的，写入的物品库自然“无法生效”。
+            var mode = id[1];
             if (invItems.length === 0 && mode !== 1) {
                 openItemLibSet(pl, "§c✘ 背包为空，无法添加或修改", mode); return;
             }
-            var selItem = inv[invIndex[id[2]]];
+            var selItem = inv[invIndex[id[3]]];
             var count   = 1;
             if (selItem) {
-                count = (id[3] === "" || isNaN(id[3])) ? selItem.count : Math.min(Math.max(1, Number(id[3])), 64);
+                count = (id[4] === "" || isNaN(id[4])) ? selItem.count : Math.min(Math.max(1, Number(id[4])), 64);
             }
 
             function makeSnbt() {
@@ -619,9 +628,9 @@ function initSignModule() {
                 itemLib.push(makeSnbt());
             } else if (mode === 1) {
                 if (itemLib.length <= 1) { openItemLibSet(pl, "§c✘ 至少保留一种物品", mode); return; }
-                itemLib.splice(id[1], 1);
+                itemLib.splice(id[2], 1);
             } else {
-                itemLib.splice(id[1], 1, makeSnbt());
+                itemLib.splice(id[2], 1, makeSnbt());
             }
             reward_data.write(JSON.stringify(itemLib, null, 4));
             openItemLibSet(pl, "§a✔ 操作成功", mode);
@@ -663,29 +672,35 @@ function initSignModule() {
 
         player.sendForm(fm, function (pl, id) {
             if (id == null) { openSetMain(pl); return; }
-            var dayStr = id[1].trim();
+            // 修复：同奖励物品库/每日奖励序列一样，开头的 addLabel 占用了 id[0]（值为 null），
+            // 真实顺序为 [0]label [1]操作模式 [2]目标天数 [3]奖励类型 [4]选择物品 [5]数量。
+            // 原代码整体少读一位：id[1] 拿到的是下拉框返回的数字，调 .trim() 抛 "not a function"
+            // 导致提交必崩；且 id[0] 恒为 null，删除模式永远进不去。
+            var mode   = id[1];
+            var dayStr = String(id[2]).trim();
             var day    = Number(dayStr);
             if (dayStr === "" || isNaN(day) || day < 1 || day > 365) {
-                openAdditionSet(pl, "§c✘ 目标天数必须是 1~365 之间的整数", id[0]); return;
+                openAdditionSet(pl, "§c✘ 目标天数必须是 1~365 之间的整数", mode); return;
             }
             var key = String(day);
-            if (id[0] === 1) {
+            if (mode === 1) {
                 delete addition[key];
             } else {
-                var type  = id[2];
+                var type  = id[3];
                 var token;
                 if (type === 0)      token = "random_item";
                 else if (type === 1) token = "random_money";
                 else if (type === 2) token = "random_exp";
-                else if (type === 3) token = "item_" + (Number(id[3]) + 1);
+                else if (type === 3) token = "item_" + (Number(id[4]) + 1);
                 else {
-                    var amt = (id[4] === "" || isNaN(id[4])) ? 100 : Number(id[4]);
-                    token   = type === 4 ? "money_" + amt : "exp_" + amt;
+                    var amtStr = String(id[5]).trim();
+                    var amt    = (amtStr === "" || isNaN(amtStr)) ? 100 : Number(amtStr);
+                    token      = type === 4 ? "money_" + amt : "exp_" + amt;
                 }
                 addition[key] = token;
             }
             Config.set({ addition: addition });
-            openAdditionSet(pl, "§a✔ 操作成功", id[0]);
+            openAdditionSet(pl, "§a✔ 操作成功", mode);
         });
     }
 

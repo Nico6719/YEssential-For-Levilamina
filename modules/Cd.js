@@ -323,10 +323,19 @@ class MenuPlayerHandler {
     }
 
     static executeCommand(player, command) {
-        // player.runcmd() 以玩家身份执行，可触发插件注册的命令（如 pland、home 等）
-        // mc.runcmdEx("execute as ... run") 仅对原版命令有效，插件命令无响应
-        // 参考 LSE Player API: https://lse.levimc.org/apis/GameAPI/Player/
-        player.runcmd(command);
+        // 命令含 @s 且玩家非 OP 时：以控制台身份执行，并把 @s 替换为玩家名。
+        // 这样普通玩家也能通过菜单触发受权限保护的原版命令（tag / scoreboard / effect 等），
+        // 无需给玩家发 OP。注意不能用 mc.runcmdEx 直接跑带 @s 的命令——
+        // 控制台身份下 @s 无执行对象，命令会失败，必须先替换成具体玩家名。
+        //
+        // 其余情况走 player.runcmd()，以玩家身份执行，可触发插件注册的命令（home、warp、pland 等），
+        // 这类命令在 mc.runcmdEx 下无响应。
+        // 参考 LSE API: https://lse.levimc.org/apis/GameAPI/Command/
+        if (command.includes("@s") && !player.isOP()) {
+            mc.runcmdEx(command.replace(/@s/g, player.realName));
+        } else {
+            player.runcmd(command);
+        }
     }
 }
 
@@ -880,11 +889,15 @@ class MenuAdminHandler {
 }
 // ==================== 事件监听 ====================
 function registerEvents() {
+    // 修复：原逻辑用 itemsTriggerMode（默认值 0）分别限制两个事件是否生效，
+    // 但没有任何界面可以修改这个配置，导致默认情况下 onUseItem（对着空气右键）
+    // 完全不会触发菜单，只有对着方块右键（onUseItemOn）才有反应，
+    // 玩家反馈"钟表点了没反应"大多是这种情况。
+    // 现在两个事件始终都监听，同时用 menuPendingThisTick 做 50ms 内的去重，
+    // 防止同一次点击方块时 onUseItemOn/onUseItem 都触发导致菜单弹两次。
     mc.listen("onUseItemOn", (pl, item) => {
         if (menuPendingThisTick.has(pl.xuid)) return;
-        const triggerMode = menuConfig.getItemsTriggerMode();
-        if (triggerMode !== 0 && triggerMode !== 2) return;
-        
+
         const items = menuConfig.getItems();
         if (items.includes(item.type)) {
             menuPendingThisTick.add(pl.xuid);
@@ -895,9 +908,7 @@ function registerEvents() {
 
     mc.listen("onUseItem", (pl, item) => {
         if (menuPendingThisTick.has(pl.xuid)) return;
-        const triggerMode = menuConfig.getItemsTriggerMode();
-        if (triggerMode !== 1 && triggerMode !== 2) return;
-        
+
         const items = menuConfig.getItems();
         if (items.includes(item.type)) {
             menuPendingThisTick.add(pl.xuid);

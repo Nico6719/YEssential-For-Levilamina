@@ -13,8 +13,8 @@ const pluginpath = "./plugins/YEssential/";
 const datapath = "./plugins/YEssential/data/";
 const NAME = `YEssential`;
 const PluginInfo =`基岩版多功能基础插件`;
-const version = "2.12.11";
-const regversion =[2,12,11];
+const version = "2.12.12";
+const regversion =[2,12,12];
 const info = "§l§d[-YEST-] §r§l> ";
 const offlineMoneyPath = datapath+"/Money/offlineMoney.json";
 const offlineNotifyPath = datapath+"/Money/offlineNotify.json";
@@ -818,16 +818,17 @@ function getDimensionName(id) {
 function teleportPlayer(pl,player) {
     try {
         const Hub =CachePool.conf("Hub")
+        // [fix] dimid 字段名与 /sethub 保存时一致；移除非法第5参数 {checkMatrix}
         pl.teleport(
             parseFloat(Hub.x),
             parseFloat(Hub.y),
             parseFloat(Hub.z),
-            parseInt(Hub.dimension), // 维度转为整数
-            { checkMatrix: true } // 选项参数
+            parseInt(Hub.dimid)
         );
-        pl.tell(info+CachePool.lang("hub.tp.success"));       
+        pl.tell(info+CachePool.lang("hub.tp.success"));
     } catch (e) {
-        pl.tell(info+CachePool.lang("hub.tp.fail")`${e.message}`);
+        // [fix] tagged template 语法错误，改为字符串拼接
+        pl.tell(info + CachePool.lang("hub.tp.fail") + e.message);
         logger.error(e.stack);
     }
 }
@@ -859,22 +860,49 @@ mc.listen("onConsoleCmd",(cmd)=>{
     }, 500)
 })
 }
+// ==================== 自杀 / 死亡点传送 冷却系统 ====================
+// key: 玩家名, value: 冷却结束时间戳(ms)
+const suicideCooldownMap = new Map();
+const backCooldownMap = new Map();
+
+/**
+ * 检查并（在未冷却时）设置冷却
+ * @returns {number} 剩余冷却秒数，0 表示当前不在冷却中（本次调用已顺带设置了新的冷却）
+ */
+function checkAndStartCooldown(map, plname, cooldownSec) {
+    const now = Date.now();
+    const next = map.get(plname) || 0;
+    if (now < next) {
+        return Math.ceil((next - now) / 1000);
+    }
+    if (cooldownSec > 0) map.set(plname, now + cooldownSec * 1000);
+    return 0;
+}
+
 //自杀模块
 
+if (CachePool.conf("Suicide")?.EnabledModule) {
 let suicidecmd = mc.newCommand("suicide","自杀",PermType.Any)
 suicidecmd.overload([])
 suicidecmd.setCallback((cmd,ori,out,res)=>{
     let pl = ori.player
+    const suicideCfg = CachePool.conf("Suicide") || {};
+
+    let cd = Number(suicideCfg.cooldown) || 0;
+    let remain = checkAndStartCooldown(suicideCooldownMap, pl.realName, cd);
+    if (remain > 0) return pl.tell(info + CachePool.lang("suicide.cooldown").replace("${time}", remain));
+
     if(!economyCfg.isLLMoney){
-            if(!smartMoneyCheck(pl.realName,CachePool.conf("suicide"))) return pl.tell(info + CachePool.lang("money.no.enough"));
+            if(!smartMoneyCheck(pl.realName,suicideCfg.cost)) { suicideCooldownMap.delete(pl.realName); return pl.tell(info + CachePool.lang("money.no.enough")); }
     }else{
-            if(!smartMoneyCheck(pl.realName,CachePool.conf("suicide"))) return pl.tell(info + CachePool.lang("money.no.enough"));
+            if(!smartMoneyCheck(pl.realName,suicideCfg.cost)) { suicideCooldownMap.delete(pl.realName); return pl.tell(info + CachePool.lang("money.no.enough")); }
     }
     pl.tell(info + CachePool.lang("suicide.kill.ok"));
     pl.kill()
 
 })
 suicidecmd.setup()
+} // end if (CachePool.conf("Suicide")?.EnabledModule)
 
 function Motd(){
     // 清理旧的定时器，防止内存泄漏
@@ -1723,9 +1751,11 @@ function MoneyTransferGui(plname) {
         const [, targetIdx, inputAmount, note] = data;
         const target = mc.getPlayer(playerNames[targetIdx]);
 
-        if (!target?.isSimulatedPlayer?.() === false || player.realName === target.realName) {
-            return player.tell(info + (player.realName === target.realName 
-                ? CachePool.lang("money.tr.error2") 
+        // [fix] 原条件 !x===false 双重否定导致 null target 时直接 TypeError；
+        //       拆为三段：target不存在 | 是模拟玩家 | 转给自己
+        if (!target || target.isSimulatedPlayer() || player.realName === target.realName) {
+            return player.tell(info + (player.realName === target?.realName
+                ? CachePool.lang("money.tr.error2")
                 : CachePool.lang("money.tr.error1")));
         }
 
@@ -2030,7 +2060,7 @@ function MoneyAddGui(plname) {
 
 if (__YEST_FIRST_LOAD__) {
 mc.listen("onRespawn",(pl)=>{
-    if(CachePool.conf("BackTipAfterDeath")) {
+    if(CachePool.conf("Back").EnabledModule && CachePool.conf("Back").tipAfterDeath) {
          setTimeout(() => {
             BackGUI(pl.realName)
             }, 100);
@@ -2078,14 +2108,24 @@ mc.listen("onPlayerDie", function(pl, src) {
 });
 }
 
+if (CachePool.conf("Back")?.EnabledModule) {
 let backcmd = mc.newCommand("back", "返回死亡点", PermType.Any)
 backcmd.overload([])
 backcmd.setCallback((cmd, ori, out, res) => {
     let pl = ori.player
     if (!pl) return out.error(CachePool.lang("warp.only.player"))
+    const backCfg = CachePool.conf("Back") || {};
+
+    let cd = Number(backCfg.cooldown) || 0;
+    let next = backCooldownMap.get(pl.realName) || 0;
+    if (Date.now() < next) {
+        let remain = Math.ceil((next - Date.now()) / 1000);
+        return pl.tell(info + CachePool.lang("back.cooldown").replace("${time}", remain));
+    }
     BackGUI(pl.realName)
 })
 backcmd.setup()
+} // end if (CachePool.conf("Back")?.EnabledModule)
 
 function BackGUI(plname) {
     let pl = mc.getPlayer(plname)
@@ -2097,7 +2137,7 @@ function BackGUI(plname) {
     }
     
     // [fix] 一次读取 cost 和 coinName，避免回调内重复读配置
-    let cost     = CachePool.conf("Back");
+    let cost     = (CachePool.conf("Back") || {}).cost;
     let coinName = economyCfg.coinName;
     let fm = mc.newCustomForm()
     fm.setTitle(CachePool.lang("back.to.point"))
@@ -2153,12 +2193,22 @@ function BackGUI(plname) {
         if (!selectedPoint || !selectedPoint.pos) {
             return pl.tell(info + CachePool.lang("back.deathlog.error"));
         }
+
+        // 开关 + 冷却二次校验（防止玩家挂着表单跨过冷却窗口）
+        const backCfg2 = CachePool.conf("Back") || {};
+        if (backCfg2.EnabledModule === false) return pl.tell(info + CachePool.lang("back.disabled"));
+        let backCd = Number(backCfg2.cooldown) || 0;
+        let backNext = backCooldownMap.get(pl.realName) || 0;
+        if (Date.now() < backNext) {
+            let remain = Math.ceil((backNext - Date.now()) / 1000);
+            return pl.tell(info + CachePool.lang("back.cooldown").replace("${time}", remain));
+        }
         
         // 检查金钱
         if (!economyCfg.isLLMoney) {
-            if (!smartMoneyCheck(pl.realName, CachePool.conf("Back"))) return pl.tell(info + CachePool.lang("money.no.enough"));
+            if (!smartMoneyCheck(pl.realName, backCfg2.cost)) return pl.tell(info + CachePool.lang("money.no.enough"));
         } else {
-            if (!smartMoneyCheck(pl.realName, CachePool.conf("Back"))) return pl.tell(info + CachePool.lang("money.no.enough"));
+            if (!smartMoneyCheck(pl.realName, backCfg2.cost)) return pl.tell(info + CachePool.lang("money.no.enough"));
         }
         
         // 传送到选择的死亡点
@@ -2173,6 +2223,8 @@ function BackGUI(plname) {
             
             mc.runcmdEx("effect " + pl.realName + " resistance 15 255 true")
             
+            // 传送成功才计入冷却
+            if (backCd > 0) backCooldownMap.set(pl.realName, Date.now() + backCd * 1000);
             
             pl.tell(info + `§a已传送至死亡点${selectedIndex + 1}！`);
         } catch (e) {

@@ -2,7 +2,7 @@
 // randomGradientLog 由主文件通过 globalThis 注入，此处无需重复定义
 class ConfigManager {
     constructor() {
-        this.currentVersion = 294;
+        this.currentVersion = 295;
         this.pluginPath = pluginpath || "./plugins/YEssential";
         this.moduleListPath = `${this.pluginPath}/modules/modulelist.json`;
         // Update 配置独立文件路径（与 config.json 同级，均在 Config/ 目录下）
@@ -12,7 +12,7 @@ class ConfigManager {
         this.backupConf = null;
         // 默认配置（不含 Update，Update 已独立到 Updateconfig.json）
         this.configDefaults = {
-            "Version": 294,
+            "Version": 295,
             "Economy": {
                 "mode": "scoreboard",
                 "RankingModel" : "New",
@@ -116,10 +116,18 @@ class ConfigManager {
                 "LogCrashInfo": true
             },
             "SimpleLogOutPut": false,
-            "suicide": 0,
-            "Back": 0,
+            "Suicide": {
+                "EnabledModule": true,   // 自杀功能总开关
+                "cost": 0,               // 自杀花费
+                "cooldown": 0            // 冷却时间（秒），0 表示不冷却
+            },
+            "Back": {
+                "EnabledModule": true,   // 死亡点传送功能总开关
+                "cost": 0,               // 传送花费
+                "cooldown": 0,           // 冷却时间（秒），0 表示不冷却
+                "tipAfterDeath": false   // 死亡复活后是否自动弹出返回GUI
+            },
             "Warp": 0,
-            "BackTipAfterDeath": false,
             "KeepInventory": false,
         };
 
@@ -499,7 +507,8 @@ class ConfigManager {
         
         const migrations = [
             { version: 293, handler: () => this.migrateTo293() },
-            { version: 294, handler: () => this.migrateTo294() }
+            { version: 294, handler: () => this.migrateTo294() },
+            { version: 295, handler: () => this.migrateTo295() }
         ];
 
         migrations.forEach(migration => {
@@ -620,6 +629,66 @@ class ConfigManager {
         }
 
         randomGradientLog("Update 配置迁移完成，今后请在 Updateconfig.json 中修改更新相关配置");
+    }
+
+    /**
+     * 迁移到 v295：将旧版扁平的 suicide / Back 数字配置（仅表示花费）
+     * 迁移为嵌套对象格式 Suicide / Back（{EnabledModule, cost, cooldown}），
+     * 与 tpa / Home 等模块的配置风格保持一致，同时新增开关与冷却字段。
+     *
+     * 迁移策略：
+     *   1. 若存在旧的 "suicide"（小写，数字）键 → 取其值作为新 Suicide.cost，删除旧键
+     *   2. 若 "Back" 键仍是数字（旧格式）→ 取其值作为新 Back.cost，覆盖为嵌套对象
+     *   3. 若已经是嵌套对象（说明已迁移过，或是全新安装）→ 跳过，不覆盖用户已有配置
+     */
+    migrateTo295() {
+        randomGradientLog("更新配置版本到295：迁移 suicide/Back 旧配置为 Suicide/Back 嵌套格式");
+
+        // ── suicide → Suicide ──────────────────────────────
+        const oldSuicide = conf.get("suicide");
+        const curSuicide = conf.get("Suicide");
+        if (typeof oldSuicide === "number" && !this.isValidObject(curSuicide)) {
+            conf.set("Suicide", {
+                EnabledModule: true,
+                cost: oldSuicide,
+                cooldown: 0
+            });
+            randomGradientLog(`suicide 旧花费 ${oldSuicide} → 迁移为 Suicide.cost，新增开关/冷却字段`);
+        } else if (this.isValidObject(curSuicide)) {
+            randomGradientLog("Suicide 已为嵌套对象格式，跳过迁移，保留现有配置");
+        }
+        if (oldSuicide !== undefined) {
+            conf.delete("suicide");
+            randomGradientLog("已从 config.json 中删除旧的 suicide 键");
+        }
+
+        // ── Back（数字花费）→ Back（嵌套对象）──────────────
+        const oldBack = conf.get("Back");
+        if (typeof oldBack === "number") {
+            conf.set("Back", {
+                EnabledModule: true,
+                cost: oldBack,
+                cooldown: 0
+            });
+            randomGradientLog(`Back 旧花费 ${oldBack} → 迁移为 Back.cost，新增开关/冷却字段`);
+        } else if (this.isValidObject(oldBack)) {
+            randomGradientLog("Back 已为嵌套对象格式，跳过迁移，保留现有配置");
+        }
+
+        // ── BackTipAfterDeath（旧顶级键，0/1 数字或布尔）→ Back.tipAfterDeath ──
+        const oldBackTip = conf.get("BackTipAfterDeath");
+        if (oldBackTip !== undefined) {
+            const newBack = conf.get("Back");
+            if (this.isValidObject(newBack) && newBack.tipAfterDeath === undefined) {
+                newBack.tipAfterDeath = typeof oldBackTip === "number" ? oldBackTip !== 0 : !!oldBackTip;
+                conf.set("Back", newBack);
+                randomGradientLog(`BackTipAfterDeath 旧值 ${oldBackTip} → 迁移为 Back.tipAfterDeath`);
+            }
+            conf.delete("BackTipAfterDeath");
+            randomGradientLog("已从 config.json 中删除旧的 BackTipAfterDeath 键");
+        }
+
+        randomGradientLog("Suicide/Back 配置迁移完成，今后请通过 Suicide.EnabledModule / Suicide.cooldown / Back.EnabledModule / Back.cooldown / Back.tipAfterDeath 等字段配置");
     }
 
     /**
