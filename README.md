@@ -138,9 +138,6 @@
 ## 🛠 依赖要求
 
 - 需要 **LegacyScriptEngine** 平台支持  
-- 兼容并能够导入部分 **TMEssential** 的数据
->把 服务端目录\plugins\Timiya\data内的homelist.json和warplist.json<br>
->移动到服务端目录\plugins\YEssential\data内并且分别重命名为homedata.json和warpdata.json然后保存
 
 ---
 
