@@ -24,7 +24,6 @@ jobs:
           NEW=$(jq -r '.version' tooth.json)
           OLD=$(git show HEAD~1:tooth.json 2>/dev/null | jq -r '.version' 2>/dev/null || echo "")
           echo "new=$NEW" >> "$GITHUB_OUTPUT"
-          echo "old=$OLD" >> "$GITHUB_OUTPUT"
           if [ "$NEW" = "$OLD" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "版本未变化 ($NEW)，跳过发布"
@@ -40,34 +39,36 @@ jobs:
           MANIFEST_VER=$(jq -r '.version' manifest.json)
 
           # tooth.json 带 v 前缀，manifest.json 不带，统一去掉 v 再对比
-          TOOTH_PLAIN="${TOOTH_VER#v}"
-          MANIFEST_PLAIN="${MANIFEST_VER#v}"
-
           echo "tooth.json    版本: $TOOTH_VER"
           echo "manifest.json 版本: $MANIFEST_VER"
 
-          if [ "$TOOTH_PLAIN" != "$MANIFEST_PLAIN" ]; then
+          if [ "${TOOTH_VER#v}" != "${MANIFEST_VER#v}" ]; then
             echo "::error::版本号不一致！tooth.json=$TOOTH_VER，manifest.json=$MANIFEST_VER，请同步后重新 push"
             exit 1
           fi
-          echo "✓ 版本号一致: $TOOTH_VER"
+          echo "版本号一致: $TOOTH_VER"
 
       - name: 提取本次版本的更新日志
         if: steps.ver.outputs.changed == 'true'
-        id: notes
         run: |
           VERSION="${{ steps.ver.outputs.new }}"
-          # 提取 CHANGELOG.md 中 ## $VERSION 到下一个 ## 之间的内容
-          NOTES=$(awk "/^## ${VERSION}[[:space:]]*/,/^## /" CHANGELOG.md \
-            | head -n -1 | tail -n +2)
-          if [ -z "$NOTES" ]; then
-            NOTES="请查看 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)"
+          # 取 "## <版本号>" 到下一个 "## " 之间的内容，用字面量匹配避免版本号里的点被当通配符
+          awk -v head="## $VERSION" '
+            !found && index($0, head) == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+
+          # 去掉开头的空行
+          sed -i -e '/./,$!d' release_notes.md
+
+          if [ ! -s release_notes.md ]; then
+            echo "::warning::CHANGELOG.md 里没有 ## $VERSION 这一段，Release 说明将使用兜底文案"
+            echo "本次更新内容请查看 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)" > release_notes.md
           fi
-          {
-            echo "notes<<EOF"
-            echo "$NOTES"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+
+          echo "--- Release 说明 ---"
+          cat release_notes.md
 
       - name: 打包 YEssential.zip
         if: steps.ver.outputs.changed == 'true'
@@ -75,9 +76,9 @@ jobs:
           mkdir -p dist/YEssential
           cp YEssential.js manifest.json dist/YEssential/
           cp -r modules dist/YEssential/
-          cd dist && zip -r ../YEssential.zip YEssential
+          (cd dist && zip -r ../YEssential.zip YEssential)
           echo "--- 打包内容 ---"
-          unzip -l ../YEssential.zip
+          unzip -l YEssential.zip
 
       - name: 创建 Release 并上传
         if: steps.ver.outputs.changed == 'true'
@@ -87,4 +88,4 @@ jobs:
           VERSION="${{ steps.ver.outputs.new }}"
           gh release create "$VERSION" YEssential.zip \
             --title "$VERSION" \
-            --notes "${{ steps.notes.outputs.notes }}"
+            --notes-file release_notes.md
