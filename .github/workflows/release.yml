@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'tooth.json'   # 只有 tooth.json 变动才触发
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # 需要对比前一个 commit
+
+      - name: 检测版本号是否变化
+        id: ver
+        run: |
+          NEW=$(jq -r '.version' tooth.json)
+          OLD=$(git show HEAD~1:tooth.json 2>/dev/null | jq -r '.version' 2>/dev/null || echo "")
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "old=$OLD" >> "$GITHUB_OUTPUT"
+          if [ "$NEW" = "$OLD" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "版本未变化 ($NEW)，跳过发布"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "版本变化: $OLD → $NEW，准备发布"
+          fi
+
+      - name: 提取本次版本的更新日志
+        if: steps.ver.outputs.changed == 'true'
+        id: notes
+        run: |
+          VERSION="${{ steps.ver.outputs.new }}"
+          # 提取 CHANGELOG.md 中 ## $VERSION 到下一个 ## 之间的内容
+          NOTES=$(awk "/^## ${VERSION}[[:space:]]*/,/^## [^${VERSION}]/" CHANGELOG.md \
+            | head -n -1 | tail -n +2)
+          if [ -z "$NOTES" ]; then
+            NOTES="请查看 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)"
+          fi
+          # 多行输出写入 GITHUB_OUTPUT
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 打包 YEssential.zip
+        if: steps.ver.outputs.changed == 'true'
+        run: |
+          mkdir -p dist/YEssential
+          cp YEssential.js manifest.json dist/YEssential/
+          cp -r modules dist/YEssential/
+          cd dist && zip -r ../YEssential.zip YEssential
+          echo "--- 打包内容 ---"
+          unzip -l ../YEssential.zip
+
+      - name: 创建 Release 并上传
+        if: steps.ver.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.ver.outputs.new }}"
+          gh release create "$VERSION" YEssential.zip \
+            --title "$VERSION" \
+            --notes "${{ steps.notes.outputs.notes }}"
