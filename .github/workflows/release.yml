@@ -33,18 +33,36 @@ jobs:
             echo "版本变化: $OLD → $NEW，准备发布"
           fi
 
+      - name: 校验 manifest.json 与 tooth.json 版本一致
+        if: steps.ver.outputs.changed == 'true'
+        run: |
+          TOOTH_VER="${{ steps.ver.outputs.new }}"
+          MANIFEST_VER=$(jq -r '.version' manifest.json)
+
+          # tooth.json 带 v 前缀，manifest.json 不带，统一去掉 v 再对比
+          TOOTH_PLAIN="${TOOTH_VER#v}"
+          MANIFEST_PLAIN="${MANIFEST_VER#v}"
+
+          echo "tooth.json    版本: $TOOTH_VER"
+          echo "manifest.json 版本: $MANIFEST_VER"
+
+          if [ "$TOOTH_PLAIN" != "$MANIFEST_PLAIN" ]; then
+            echo "::error::版本号不一致！tooth.json=$TOOTH_VER，manifest.json=$MANIFEST_VER，请同步后重新 push"
+            exit 1
+          fi
+          echo "✓ 版本号一致: $TOOTH_VER"
+
       - name: 提取本次版本的更新日志
         if: steps.ver.outputs.changed == 'true'
         id: notes
         run: |
           VERSION="${{ steps.ver.outputs.new }}"
           # 提取 CHANGELOG.md 中 ## $VERSION 到下一个 ## 之间的内容
-          NOTES=$(awk "/^## ${VERSION}[[:space:]]*/,/^## [^${VERSION}]/" CHANGELOG.md \
+          NOTES=$(awk "/^## ${VERSION}[[:space:]]*/,/^## /" CHANGELOG.md \
             | head -n -1 | tail -n +2)
           if [ -z "$NOTES" ]; then
             NOTES="请查看 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)"
           fi
-          # 多行输出写入 GITHUB_OUTPUT
           {
             echo "notes<<EOF"
             echo "$NOTES"
