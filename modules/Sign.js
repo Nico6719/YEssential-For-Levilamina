@@ -364,7 +364,9 @@ function initSignModule() {
         } else if (rewardObj.type === "money") {
             Money.add(player, rewardObj.reward);
         } else if (rewardObj.type === "exp") {
-            player.addExp(Number(rewardObj.reward));
+            // LSE 的 Player API 没有 addExp，增加经验点数的方法是 addExperience(count)
+            // 参考: https://lse.levimc.org/apis/GameAPI/Player/
+            player.addExperience(Number(rewardObj.reward));
         }
     }
 
